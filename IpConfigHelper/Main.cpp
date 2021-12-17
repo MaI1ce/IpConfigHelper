@@ -12,6 +12,7 @@ string foo(NetworkParams ob) {
 int main(int argc, char* argv[]) {
 	try {
 		NetworkParams ob;
+		ob.init();
 		string res = foo(ob);
 		cout << res;
 	}

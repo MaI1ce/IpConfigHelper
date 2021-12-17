@@ -9,17 +9,11 @@
 #include <string>
 #endif
 #define ERROR_NULL_POINTER_ACCESS 101
+#define UNEXPECTED_API_ERROR 9999
 
-class IpHelper {
-protected:
-    DWORD dwRetVal;
-public:
-    virtual void info() = 0;
-};
-
-class IpHelperError: public IpHelper {
+class IpHelperError {
 private:
-    IpHelper* p_ob;
+    DWORD dwRetVal;
 public:
     /*
     error codes:
@@ -27,24 +21,79 @@ public:
     ERROR_INSUFFICIENT_BUFFER
     ERROR_NULL_POINTER_ACCESS (101)
     ERROR_SUCCESS
+    UNEXPECTED_API_ERROR
     */
-    IpHelperError(IpHelper* ob, int error_code) :p_ob(ob) {
-        dwRetVal = error_code;
-    }
-    void info() { fprintf(stderr,"error code = %d", dwRetVal); };
+    IpHelperError(int error_code) : dwRetVal(error_code) { }
+    void info() { fprintf(stderr, "error code = %d", dwRetVal); };
 };
 
-//-----------------------------------------------------------------------NetworkParams
-class NetworkParams: public IpHelper {
-    FIXED_INFO* pFixedInfo;
-    ULONG       ulOutBufLen;
-    int         DnsNum;
+
+template<class APItype>
+class IpHelper {
+protected:
+    DWORD dwRetVal;
+    ULONG size;
+    APItype* pBuffer;
+
+    virtual DWORD APICALL() = 0;
+
+    virtual DWORD Error(DWORD val) = 0;
+
+    template<class APItype>
+
+    friend void allocator(IpHelper<APItype>* ob);
+
+    IpHelper() :pBuffer(NULL), size(0), dwRetVal(0) {}
+
+    IpHelper(const IpHelper& ob) :pBuffer(NULL), size(0), dwRetVal(0)
+    {
+        if (ob.pBuffer != NULL) {
+            pBuffer = (APItype*)malloc(ob.size);
+            if (pBuffer != NULL) {
+                memcpy(pBuffer, ob.pBuffer, ob.size);
+            }
+            dwRetVal = ob.dwRetVal;
+            size = ob.size;
+        }
+    }
 public:
-    NetworkParams();
 
-    NetworkParams(const NetworkParams& ob);
+    ~IpHelper() {
+        if (pBuffer) {
+            free(pBuffer);
+            pBuffer = NULL;
+        }
+    }
 
-    ~NetworkParams();
+    virtual void info() = 0;
+
+    virtual void init() = 0;
+
+    
+};
+
+
+//-----------------------------------------------------------------------NetworkParams
+class NetworkParams: public IpHelper<FIXED_INFO> {
+    int DnsNum;
+    
+    DWORD APICALL() {
+        return GetNetworkParams(pBuffer, &size);
+    }
+
+    DWORD Error(DWORD val) {
+        if (val == ERROR_BUFFER_OVERFLOW)
+            return NO_ERROR;
+        else return UNEXPECTED_API_ERROR;
+    }
+
+    template<class APItype> friend void allocator(IpHelper<APItype>* ob);
+public:
+    void init();
+
+    NetworkParams() :IpHelper<FIXED_INFO>(), DnsNum(0) {};
+
+    NetworkParams(const NetworkParams& ob) :IpHelper<FIXED_INFO>(ob), DnsNum(ob.DnsNum) {};
 
     void info();
 
@@ -72,14 +121,27 @@ public:
 //-----------------------------------------------------------------------NetworkParams
 
 //-----------------------------------------------------------------------AdaptersInfo
-class AdaptersInfo : public IpHelper {
-    IP_ADAPTER_INFO* pAdapterInfo;
-    ULONG            ulOutBufLen;
-    int              AdapterNum;
+class AdaptersInfo : public IpHelper<IP_ADAPTER_INFO> {
+    int AdapterNum;
+
+    DWORD APICALL() {
+        return GetAdaptersInfo(pBuffer, &size);
+    }
+
+    DWORD Error(DWORD val) {
+        if (val != ERROR_SUCCESS)
+            return NO_ERROR;
+        else return UNEXPECTED_API_ERROR;
+    }
+
+    template<class APItype> friend void allocator(IpHelper<APItype>* ob);
 public:
-    AdaptersInfo();
-    AdaptersInfo(const AdaptersInfo& ob);
-    ~AdaptersInfo();
+    AdaptersInfo() :IpHelper<IP_ADAPTER_INFO>(), AdapterNum(0) {};
+
+    AdaptersInfo(const AdaptersInfo& ob) :IpHelper<IP_ADAPTER_INFO>(ob), AdapterNum(ob.AdapterNum) {};
+
+    void init();
+
     void info();
 };
 //-----------------------------------------------------------------------AdaptersInfo
